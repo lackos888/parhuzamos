@@ -1,0 +1,2 @@
+# parhuzamos
+Párhuzamos programozás

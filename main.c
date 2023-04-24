@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 
 int RandRange(int Min, int Max)
 {
@@ -471,6 +472,235 @@ int oszloposszeg_szamitas(cl_platform_id platform_id, cl_uint n_devices, cl_devi
     return 1;
 }
 
+int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id device_id, cl_context context, cl_program program, cl_int *matrix1, cl_int matrix1size, cl_int *matrix2, cl_int matrix2size)
+{
+    cl_int err;
+    int error_code;
+
+    // Create the host buffer and initialize it
+
+    if(matrix1size != matrix2size)
+    {
+        return -2;
+    }
+
+    const int numRowsAndColumns = matrix1size;
+
+    const cl_int overallSize = (numRowsAndColumns * numRowsAndColumns) * 2;
+
+    const cl_int halfSize = overallSize / 2;
+
+    const cl_int hostBufferSize = sizeof(cl_int) * overallSize;
+
+    cl_int *host_buffer = malloc(hostBufferSize);
+
+    for(int it = 0; it < overallSize; it++)
+    {
+        if(it < halfSize)
+        {
+            host_buffer[it] = matrix1[it];
+        } else 
+        {
+            host_buffer[it] = matrix2[it - halfSize];
+        }
+    }
+    
+    printf("[MATRIX_SZORZAS] Az eredeti 1. matrix %d soros:\n", numRowsAndColumns);
+
+    for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
+    {
+        printf("==> Az %d. sor szamai: ", rowIt + 1);
+
+        for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
+        {
+            printf("%d%s", host_buffer[(rowIt * numRowsAndColumns) + dataIt], (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+        }
+
+        printf("\n");
+    }
+
+    printf("[MATRIX_SZORZAS] Az eredeti 2. matrix %d soros:\n", numRowsAndColumns);
+
+    for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
+    {
+        printf("==> Az %d. sor szamai: ", rowIt + 1);
+
+        for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
+        {
+            printf("%d%s", host_buffer[(rowIt * numRowsAndColumns) + dataIt + halfSize], (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+        }
+
+        printf("\n");
+    }
+
+    /*
+    printf("[MATRIX_SZORZAS] host_buffer:\n");
+
+    for(int it = 0; it < overallSize; it++)
+    {
+        printf("host_buffer[%d] = %d\n", it, host_buffer[it]);
+    }
+
+    printf("\n");
+    */
+
+    const cl_int multiplicationBufferSize = sizeof(cl_int) * (numRowsAndColumns * numRowsAndColumns);
+    cl_int *multiplication_buffer = malloc(multiplicationBufferSize);
+
+    for(int rowIt = 0; rowIt < numRowsAndColumns * numRowsAndColumns; rowIt++)
+    {
+        multiplication_buffer[rowIt] = 0;
+    }
+
+    // Create the device buffer
+    cl_mem device_buffer = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
+        hostBufferSize,
+        host_buffer,
+        &err
+    );
+
+    if (err != CL_SUCCESS) {
+        printf("Unable to create buffer! Code: %d\n", err);
+        return 0;
+    }
+
+    // Create the output buffer
+    cl_mem output_buffer = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
+        multiplicationBufferSize,
+        multiplication_buffer,
+        &err
+    );
+
+    if (err != CL_SUCCESS) {
+        printf("Unable to create buffer (#2)! Code: %d\n", err);
+        return 0;
+    }
+
+    cl_kernel kernel = clCreateKernel(program, "multiplication", NULL);
+
+    // Size specification
+    size_t local_work_size = 1;
+    size_t global_work_size = numRowsAndColumns * (numRowsAndColumns * numRowsAndColumns);
+    int chunkSize = 0;
+    int workersNum = global_work_size;
+
+    printf("global_work_size: %d|numRowsAndColumns: %d\n", global_work_size, numRowsAndColumns);
+
+    // Set kernel arguments
+    clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*)&device_buffer);
+    clSetKernelArg(kernel, 1, sizeof(int), (void*)&matrix1size);
+    clSetKernelArg(kernel, 2, sizeof(int), (void*)&matrix2size);
+    clSetKernelArg(kernel, 3, sizeof(cl_mem), (void*)&output_buffer);
+    clSetKernelArg(kernel, 4, sizeof(int), (void*)&chunkSize);
+    clSetKernelArg(kernel, 5, sizeof(int), (void*)&workersNum);
+
+    // Create the command queue
+    cl_command_queue command_queue = clCreateCommandQueue(
+        context, device_id, CL_QUEUE_PROFILING_ENABLE, NULL);
+
+    // Host buffer -> Device buffer
+    clEnqueueWriteBuffer(
+        command_queue,
+        device_buffer,
+        CL_FALSE,
+        0,
+        hostBufferSize,
+        host_buffer,
+        0,
+        NULL,
+        NULL
+    );
+
+    // Multiplication buffer (host) -> Multiplication buffer (device)
+    clEnqueueWriteBuffer(
+        command_queue,
+        output_buffer,
+        CL_FALSE,
+        0,
+        multiplicationBufferSize,
+        multiplication_buffer,
+        0,
+        NULL,
+        NULL
+    );
+
+    // Apply the kernel on the range
+    cl_event event;
+    cl_int ret = clEnqueueNDRangeKernel(
+        command_queue,
+        kernel,
+        1,
+        NULL,
+        &global_work_size,
+        &local_work_size,
+        0,
+        NULL,
+        &event
+    );
+
+    if(ret != CL_SUCCESS)
+    {
+        printf("clEnqueueNDRangeKernel ret: %d\n", ret);
+
+        return 0;
+    }
+
+    clFinish(command_queue);
+
+    // Host buffer <- Device buffer
+    clEnqueueReadBuffer(
+        command_queue,
+        device_buffer,
+        CL_TRUE,
+        0,
+        hostBufferSize,
+        host_buffer,
+        0,
+        NULL,
+        NULL
+    );
+
+    // Multiplication host buffer <- Multiplication device buffer
+    clEnqueueReadBuffer(
+        command_queue,
+        output_buffer,
+        CL_TRUE,
+        0,
+        multiplicationBufferSize,
+        multiplication_buffer,
+        0,
+        NULL,
+        NULL
+    );
+
+    printf("[MATRIX_SZORZAS] A szorzat eredmenymatrixa %d soros:\n", numRowsAndColumns);
+
+    for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
+    {
+        printf("==> Az %d. sor szamai: ", rowIt + 1);
+
+        for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
+        {
+            printf("%d%s", multiplication_buffer[(rowIt * numRowsAndColumns) + dataIt], (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+        }
+
+        printf("\n");
+    }
+    
+    // Release the resources
+    clReleaseMemObject(device_buffer);
+    clReleaseKernel(kernel);
+    clReleaseCommandQueue(command_queue);
+
+    free(host_buffer);
+
+    return 1;
+}
+
 int main(void)
 {
     srand(time(NULL));
@@ -553,10 +783,104 @@ int main(void)
 
     //oszloposszeg_szamitas(platform_id, n_devices, device_id, context, program);
 
-    sorosszeg_szamitas(platform_id, n_devices, device_id, context, program);
+    //sorosszeg_szamitas(platform_id, n_devices, device_id, context, program);
+
+    /* 3x3-as példa */
+
+    /*
+    cl_int matrixSizes = 3;
+    cl_int *matrix1 = malloc(matrixSizes * matrixSizes * sizeof(cl_int));
+    cl_int *matrix2 = malloc(matrixSizes * matrixSizes * sizeof(cl_int));
+
+    matrix1[0] = 2;
+    matrix1[1] = 3;
+    matrix1[2] = 4;
+    matrix1[3] = 5;
+    matrix1[4] = 6;
+    matrix1[5] = 7;
+    matrix1[6] = 8;
+    matrix1[7] = 9;
+    matrix1[8] = 10;
+
+    matrix2[0] = 11;
+    matrix2[1] = 12;
+    matrix2[2] = 13;
+    matrix2[3] = 14;
+    matrix2[4] = 15;
+    matrix2[5] = 16;
+    matrix2[6] = 17;
+    matrix2[7] = 18;
+    matrix2[8] = 19;
+    */
+    /* 3x3-as példa END */
+
+    /* 2x2-es példa */
+    /*
+    cl_int matrixSizes = 2;
+    cl_int *matrix1 = malloc(matrixSizes * matrixSizes * sizeof(cl_int));
+    cl_int *matrix2 = malloc(matrixSizes * matrixSizes * sizeof(cl_int));
+
+    matrix1[0] = 2;
+    matrix1[1] = 3;
+    matrix1[2] = 4;
+    matrix1[3] = 5;
+
+    matrix2[0] = 6;
+    matrix2[1] = 7;
+    matrix2[2] = 8;
+    matrix2[3] = 9;
+
+    matrix_szorzas(platform_id, n_devices, device_id, context, program, matrix1, matrixSizes, matrix2, matrixSizes);
+    */
+    /* 2x2-es példa END */
+
+    /* 4x4-es példa */
+    cl_int matrixSizes = 4;
+    cl_int *matrix1 = malloc(matrixSizes * matrixSizes * sizeof(cl_int));
+    cl_int *matrix2 = malloc(matrixSizes * matrixSizes * sizeof(cl_int));
+
+    matrix1[0] = 2;
+    matrix1[1] = 3;
+    matrix1[2] = 4;
+    matrix1[3] = 5;
+    matrix1[4] = 6;
+    matrix1[5] = 7;
+    matrix1[6] = 8;
+    matrix1[7] = 9;
+    matrix1[8] = 10;
+    matrix1[9] = 11;
+    matrix1[10] = 12;
+    matrix1[11] = 13;
+    matrix1[12] = 14;
+    matrix1[13] = 15;
+    matrix1[14] = 16;
+    matrix1[15] = 17;
+
+    matrix2[0] = 18;
+    matrix2[1] = 19;
+    matrix2[2] = 20;
+    matrix2[3] = 21;
+    matrix2[4] = 22;
+    matrix2[5] = 23;
+    matrix2[6] = 24;
+    matrix2[7] = 25;
+    matrix2[8] = 26;
+    matrix2[9] = 27;
+    matrix2[10] = 28;
+    matrix2[11] = 29;
+    matrix2[12] = 30;
+    matrix2[13] = 31;
+    matrix2[14] = 32;
+    matrix2[15] = 33;
+    /* 4x4-es példa END */
+
+    matrix_szorzas(platform_id, n_devices, device_id, context, program, matrix1, matrixSizes, matrix2, matrixSizes);
 
     //Release resources
     clReleaseProgram(program);
     clReleaseContext(context);
     clReleaseDevice(device_id);
+
+    free(matrix1);
+    free(matrix2);
 }

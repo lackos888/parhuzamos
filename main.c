@@ -472,39 +472,21 @@ int oszloposszeg_szamitas(cl_platform_id platform_id, cl_uint n_devices, cl_devi
     return 1;
 }
 
-int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id device_id, cl_context context, cl_program program, cl_int *matrix1, cl_int matrix1size, cl_int *matrix2, cl_int matrix2size)
+int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id device_id, cl_context context, cl_program program, int *matrix1, int matrix1size, int *matrix2, int matrix2size)
 {
     cl_int err;
     int error_code;
 
-    // Create the host buffer and initialize it
+    // Check matrix sizes
 
     if(matrix1size != matrix2size)
     {
         return -2;
     }
 
-    const int numRowsAndColumns = matrix1size;
+    const size_t numRowsAndColumns = matrix1size;
 
-    const cl_int overallSize = (numRowsAndColumns * numRowsAndColumns) * 2;
-
-    const cl_int halfSize = overallSize / 2;
-
-    const cl_int hostBufferSize = sizeof(cl_int) * overallSize;
-
-    cl_int *host_buffer = malloc(hostBufferSize);
-
-    for(int it = 0; it < overallSize; it++)
-    {
-        if(it < halfSize)
-        {
-            host_buffer[it] = matrix1[it];
-        } else 
-        {
-            host_buffer[it] = matrix2[it - halfSize];
-        }
-    }
-    
+    /*
     printf("[MATRIX_SZORZAS] Az eredeti 1. matrix %d soros:\n", numRowsAndColumns);
 
     for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
@@ -513,7 +495,7 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
 
         for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
         {
-            printf("%d%s", host_buffer[(rowIt * numRowsAndColumns) + dataIt], (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+            printf("%d%s", matrix1[(rowIt * numRowsAndColumns) + dataIt], (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
         }
 
         printf("\n");
@@ -527,42 +509,52 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
 
         for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
         {
-            printf("%d%s", host_buffer[(rowIt * numRowsAndColumns) + dataIt + halfSize], (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+            printf("%d%s", matrix2[(rowIt * numRowsAndColumns) + dataIt], (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
         }
 
         printf("\n");
     }
-
-    /*
-    printf("[MATRIX_SZORZAS] host_buffer:\n");
-
-    for(int it = 0; it < overallSize; it++)
-    {
-        printf("host_buffer[%d] = %d\n", it, host_buffer[it]);
-    }
-
-    printf("\n");
     */
 
-    const cl_int multiplicationBufferSize = sizeof(cl_int) * (numRowsAndColumns * numRowsAndColumns);
-    cl_int *multiplication_buffer = malloc(multiplicationBufferSize);
+    printf("[MATRIX_SZORZAS] Before multiplicationBufferSize\n");
+
+    const int multiplicationBufferSize = sizeof(int) * (numRowsAndColumns * numRowsAndColumns);
+    int *multiplication_buffer = malloc(multiplicationBufferSize);
+
+    printf("[MATRIX_SZORZAS] multiplicationBufferSize: %d\n", multiplicationBufferSize);
 
     for(int rowIt = 0; rowIt < numRowsAndColumns * numRowsAndColumns; rowIt++)
     {
         multiplication_buffer[rowIt] = 0;
     }
 
-    // Create the device buffer
-    cl_mem device_buffer = clCreateBuffer(
+    printf("[MATRIX_SZORZAS] Before clCreateBuffer\n");
+
+    // Create matrix_1_buffer
+    cl_mem matrix_1_buffer = clCreateBuffer(
         context,
         CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
-        hostBufferSize,
-        host_buffer,
+        matrix1size * matrix1size * sizeof(int),
+        matrix1,
         &err
     );
 
     if (err != CL_SUCCESS) {
-        printf("Unable to create buffer! Code: %d\n", err);
+        printf("[MATRIX_SZORZAS] Unable to create matrix 1 buffer! Code: %d\n", err);
+        return 0;
+    }
+
+    // Create matrix_2_buffer
+    cl_mem matrix_2_buffer = clCreateBuffer(
+        context,
+        CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
+        matrix2size * matrix2size * sizeof(int),
+        matrix2,
+        &err
+    );
+
+    if (err != CL_SUCCESS) {
+        printf("[MATRIX_SZORZAS] Unable to create matrix 2 buffer! Code: %d\n", err);
         return 0;
     }
 
@@ -576,60 +568,49 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
     );
 
     if (err != CL_SUCCESS) {
-        printf("Unable to create buffer (#2)! Code: %d\n", err);
+        printf("[MATRIX_SZORZAS] Unable to create output buffer! Code: %d\n", err);
         return 0;
     }
 
     cl_kernel kernel = clCreateKernel(program, "multiplication", NULL);
 
     // Size specification
-    size_t local_work_size = 1;
+    size_t max_work_group_size_by_device = 0;
+    clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &max_work_group_size_by_device, NULL);
+
+    size_t max_work_group_size_by_kernel = 0;
+    clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &max_work_group_size_by_kernel, NULL);
+
+    size_t max_work_group_size_by_kernel_default = max_work_group_size_by_kernel;
+
     size_t global_work_size = numRowsAndColumns * (numRowsAndColumns * numRowsAndColumns);
-    int chunkSize = 0;
-    int workersNum = global_work_size;
 
-    printf("global_work_size: %d|numRowsAndColumns: %d\n", global_work_size, numRowsAndColumns);
+    while(global_work_size % max_work_group_size_by_kernel != 0 && max_work_group_size_by_kernel > 0)
+    {
+        max_work_group_size_by_kernel--;
+    }
 
-    // Set kernel arguments
-    clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*)&device_buffer);
-    clSetKernelArg(kernel, 1, sizeof(int), (void*)&matrix1size);
-    clSetKernelArg(kernel, 2, sizeof(int), (void*)&matrix2size);
-    clSetKernelArg(kernel, 3, sizeof(cl_mem), (void*)&output_buffer);
-    clSetKernelArg(kernel, 4, sizeof(int), (void*)&chunkSize);
-    clSetKernelArg(kernel, 5, sizeof(int), (void*)&workersNum);
+    size_t local_work_size = fmin(fmin(max_work_group_size_by_kernel, max_work_group_size_by_device), global_work_size);
+
+    printf("[MATRIX_SZORZAS] global_work_size: %d|local_work_size: %d|max_work_group_size_by_device: %d|max_work_group_size_by_kernel_default: %d|max_work_group_size_by_kernel_adjusted: %d|numRowsAndColumns: %d\n", global_work_size, local_work_size, max_work_group_size_by_device, max_work_group_size_by_kernel_default, max_work_group_size_by_kernel, numRowsAndColumns);
 
     // Create the command queue
     cl_command_queue command_queue = clCreateCommandQueue(
         context, device_id, CL_QUEUE_PROFILING_ENABLE, NULL);
 
-    // Host buffer -> Device buffer
-    clEnqueueWriteBuffer(
-        command_queue,
-        device_buffer,
-        CL_FALSE,
-        0,
-        hostBufferSize,
-        host_buffer,
-        0,
-        NULL,
-        NULL
-    );
+    clock_t beginKernel = clock();
 
-    // Multiplication buffer (host) -> Multiplication buffer (device)
-    clEnqueueWriteBuffer(
-        command_queue,
-        output_buffer,
-        CL_FALSE,
-        0,
-        multiplicationBufferSize,
-        multiplication_buffer,
-        0,
-        NULL,
-        NULL
-    );
+    printf("[MATRIX_SZORZAS] Starting kernel...\n");
+
+    // Set kernel arguments
+    clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*)&matrix_1_buffer);
+    clSetKernelArg(kernel, 1, sizeof(cl_mem), (void*)&matrix_2_buffer);
+    clSetKernelArg(kernel, 2, sizeof(int), (void*)&matrix1size);
+    clSetKernelArg(kernel, 3, sizeof(int), (void*)&matrix2size);
+    clSetKernelArg(kernel, 4, sizeof(cl_mem), (void*)&output_buffer);
 
     // Apply the kernel on the range
-    cl_event event;
+    cl_event event = NULL;
     cl_int ret = clEnqueueNDRangeKernel(
         command_queue,
         kernel,
@@ -644,27 +625,16 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
 
     if(ret != CL_SUCCESS)
     {
-        printf("clEnqueueNDRangeKernel ret: %d\n", ret);
+        printf("[MATRIX_SZORZAS] clEnqueueNDRangeKernel ret: %d\n", ret);
 
         return 0;
     }
 
     clFinish(command_queue);
 
-    // Host buffer <- Device buffer
-    clEnqueueReadBuffer(
-        command_queue,
-        device_buffer,
-        CL_TRUE,
-        0,
-        hostBufferSize,
-        host_buffer,
-        0,
-        NULL,
-        NULL
-    );
+    clock_t endKernel = clock();
 
-    // Multiplication host buffer <- Multiplication device buffer
+    // Multiplication device buffer -> Multiplication host buffer
     clEnqueueReadBuffer(
         command_queue,
         output_buffer,
@@ -677,8 +647,13 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
         NULL
     );
 
+    clock_t endBuffer = clock();
+
+
+    printf("[MATRIX_SZORZAS] Kernel futasi ido: %f s|buffer copy futasi ido: %f s\n", (double)(endKernel - beginKernel) / CLOCKS_PER_SEC, (double)(endBuffer - endKernel) / CLOCKS_PER_SEC);
     printf("[MATRIX_SZORZAS] A szorzat eredmenymatrixa %d soros:\n", numRowsAndColumns);
 
+    /*
     for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
     {
         printf("==> Az %d. sor szamai: ", rowIt + 1);
@@ -690,13 +665,14 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
 
         printf("\n");
     }
+    */
     
     // Release the resources
-    clReleaseMemObject(device_buffer);
+    clReleaseMemObject(matrix_1_buffer);
+    clReleaseMemObject(matrix_2_buffer);
+    clReleaseMemObject(output_buffer);
     clReleaseKernel(kernel);
     clReleaseCommandQueue(command_queue);
-
-    free(host_buffer);
 
     return 1;
 }
@@ -835,6 +811,20 @@ int main(void)
     /* 2x2-es példa END */
 
     /* 4x4-es példa */
+    int matrixSizes = 7500;
+
+    int matrixAllocationSizes = matrixSizes * matrixSizes * sizeof(int);
+
+    int *matrix1 = malloc(matrixAllocationSizes);
+    int *matrix2 = malloc(matrixAllocationSizes);
+
+    for(int i = 0; i < matrixSizes * matrixSizes; i++)
+    {
+        matrix1[i] = RandRange(10, 20);
+        matrix2[i] = RandRange(10, 20);
+    }
+
+    /*
     cl_int matrixSizes = 4;
     cl_int *matrix1 = malloc(matrixSizes * matrixSizes * sizeof(cl_int));
     cl_int *matrix2 = malloc(matrixSizes * matrixSizes * sizeof(cl_int));
@@ -872,6 +862,7 @@ int main(void)
     matrix2[13] = 31;
     matrix2[14] = 32;
     matrix2[15] = 33;
+    */
     /* 4x4-es példa END */
 
     matrix_szorzas(platform_id, n_devices, device_id, context, program, matrix1, matrixSizes, matrix2, matrixSizes);

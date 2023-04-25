@@ -70,7 +70,7 @@ int transzponalas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id de
 
     // Create the command queue
     cl_command_queue command_queue = clCreateCommandQueue(
-        context, device_id, CL_QUEUE_PROFILING_ENABLE, NULL);
+        context, device_id, 0, NULL);
 
     // Host buffer -> Device buffer
     clEnqueueWriteBuffer(
@@ -592,7 +592,7 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
 
     size_t local_work_size = fmin(fmin(max_work_group_size_by_kernel, max_work_group_size_by_device), global_work_size);
 
-    printf("[MATRIX_SZORZAS] global_work_size: %d|local_work_size: %d|max_work_group_size_by_device: %d|max_work_group_size_by_kernel_default: %d|max_work_group_size_by_kernel_adjusted: %d|numRowsAndColumns: %d\n", global_work_size, local_work_size, max_work_group_size_by_device, max_work_group_size_by_kernel_default, max_work_group_size_by_kernel, numRowsAndColumns);
+    printf("[MATRIX_SZORZAS] global_work_size: %u|local_work_size: %d|max_work_group_size_by_device: %d|max_work_group_size_by_kernel_default: %d|max_work_group_size_by_kernel_adjusted: %d|numRowsAndColumns: %d\n", global_work_size, local_work_size, max_work_group_size_by_device, max_work_group_size_by_kernel_default, max_work_group_size_by_kernel, numRowsAndColumns);
 
     // Create the command queue
     cl_command_queue command_queue = clCreateCommandQueue(
@@ -811,7 +811,7 @@ int main(void)
     /* 2x2-es példa END */
 
     /* 4x4-es példa */
-    int matrixSizes = 7500;
+    int matrixSizes = 8500;
 
     int matrixAllocationSizes = matrixSizes * matrixSizes * sizeof(int);
 

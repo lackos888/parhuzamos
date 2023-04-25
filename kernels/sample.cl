@@ -53,22 +53,13 @@ __kernel void multiplication(__global int* matrix1, __global int* matrix2, int m
     size_t idx = get_global_id(0);
     size_t realIdx = idx;
 
-    size_t offset = 0;
+    size_t offset = (idx / (matrix1Size * matrix1Size));
 
-    while(idx >= matrix1Size * matrix1Size)
-    {
-        idx -= matrix1Size * matrix1Size;
-        offset++;
-    }
+    idx = (idx % (matrix1Size * matrix1Size));
 
-    size_t numberOfSubtractionsDone = 0;
+    size_t numberOfSubtractionsDone = (idx / matrix1Size);
 
-    while(idx >= matrix1Size)
-    {
-        idx -= matrix1Size;
-
-        numberOfSubtractionsDone++;
-    }
+    idx = (idx % matrix1Size);
 
     int inputRowNumFromMatrix1 = min(matrix1Size, (int)((idx / matrix1Size) + offset));
 

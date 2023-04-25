@@ -585,7 +585,7 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
 
     size_t global_work_size = numRowsAndColumns * (numRowsAndColumns * numRowsAndColumns);
 
-    while(global_work_size % max_work_group_size_by_kernel != 0 && max_work_group_size_by_kernel > 0)
+    while(global_work_size % max_work_group_size_by_kernel != 0 && max_work_group_size_by_kernel > 1)
     {
         max_work_group_size_by_kernel--;
     }

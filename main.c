@@ -472,6 +472,11 @@ int oszloposszeg_szamitas(cl_platform_id platform_id, cl_uint n_devices, cl_devi
     return 1;
 }
 
+int min(int a, int b)
+{
+    return (a > b) ? b : a;
+}
+
 int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id device_id, cl_context context, cl_program program, int *matrix1, int matrix1size, int *matrix2, int matrix2size)
 {
     cl_int err;
@@ -520,12 +525,14 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
 
     const int multiplicationBufferSize = sizeof(int) * (numRowsAndColumns * numRowsAndColumns);
     int *multiplication_buffer = malloc(multiplicationBufferSize);
+    int *multiplication_buffer_native = malloc(multiplicationBufferSize);
 
     printf("[MATRIX_SZORZAS] multiplicationBufferSize: %d\n", multiplicationBufferSize);
 
     for(int rowIt = 0; rowIt < numRowsAndColumns * numRowsAndColumns; rowIt++)
     {
         multiplication_buffer[rowIt] = 0;
+        multiplication_buffer_native[rowIt] = 0;
     }
 
     printf("[MATRIX_SZORZAS] Before clCreateBuffer\n");
@@ -575,24 +582,30 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
     cl_kernel kernel = clCreateKernel(program, "multiplication", NULL);
 
     // Size specification
-    size_t max_work_group_size_by_device = 0;
-    clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &max_work_group_size_by_device, NULL);
+    unsigned long long  max_work_group_size_by_device = 0;
+    clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(unsigned long long ), &max_work_group_size_by_device, NULL);
 
-    size_t max_work_group_size_by_kernel = 0;
-    clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &max_work_group_size_by_kernel, NULL);
+    unsigned long long  max_work_group_size_by_kernel = 0;
+    clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(unsigned long long ), &max_work_group_size_by_kernel, NULL);
 
-    size_t max_work_group_size_by_kernel_default = max_work_group_size_by_kernel;
+    unsigned long long max_work_group_size_by_kernel_default = max_work_group_size_by_kernel;
 
-    size_t global_work_size = numRowsAndColumns * (numRowsAndColumns * numRowsAndColumns);
+    unsigned long long global_work_size = numRowsAndColumns * (numRowsAndColumns * numRowsAndColumns);
 
     while(global_work_size % max_work_group_size_by_kernel != 0 && max_work_group_size_by_kernel > 1)
     {
         max_work_group_size_by_kernel--;
     }
 
-    size_t local_work_size = fmin(fmin(max_work_group_size_by_kernel, max_work_group_size_by_device), global_work_size);
+    unsigned long long  local_work_size = fmax(1, fmin(fmin(max_work_group_size_by_kernel, max_work_group_size_by_device), global_work_size));
 
-    printf("[MATRIX_SZORZAS] global_work_size: %u|local_work_size: %d|max_work_group_size_by_device: %d|max_work_group_size_by_kernel_default: %d|max_work_group_size_by_kernel_adjusted: %d|numRowsAndColumns: %d\n", global_work_size, local_work_size, max_work_group_size_by_device, max_work_group_size_by_kernel_default, max_work_group_size_by_kernel, numRowsAndColumns);
+    printf("[MATRIX_SZORZAS] global_work_size: %u\n", global_work_size);
+    printf("[MATRIX_SZORZAS] local_work_size: %u\n", local_work_size);
+    printf("[MATRIX_SZORZAS] max_work_group_size_by_device: %d\n", max_work_group_size_by_device);
+    printf("[MATRIX_SZORZAS] max_work_group_size_by_kernel_default: %d\n", max_work_group_size_by_kernel_default);
+    printf("[MATRIX_SZORZAS] max_work_group_size_by_kernel_adjusted: %d\n", max_work_group_size_by_kernel);
+    printf("[MATRIX_SZORZAS] numRowsAndColumns: %d\n", numRowsAndColumns);
+
 
     // Create the command queue
     cl_command_queue command_queue = clCreateCommandQueue(
@@ -649,18 +662,62 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
 
     clock_t endBuffer = clock();
 
-
     printf("[MATRIX_SZORZAS] Kernel futasi ido: %f s|buffer copy futasi ido: %f s\n", (double)(endKernel - beginKernel) / CLOCKS_PER_SEC, (double)(endBuffer - endKernel) / CLOCKS_PER_SEC);
+    
+    clock_t startNative = clock();
+
+    int sum = 0;
+
+    for (int rowIt = 0; rowIt < numRowsAndColumns; rowIt++) 
+    {
+        for (int columnIt = 0; columnIt < numRowsAndColumns; columnIt++) 
+        {
+            sum = 0;
+
+            for (int k = 0; k < numRowsAndColumns; k++) {
+                sum = sum + (*(int *)(matrix1 + (rowIt * numRowsAndColumns) + k)) * (*(int *)(matrix2 + (k * numRowsAndColumns) + columnIt));
+            }
+
+            multiplication_buffer_native[rowIt * numRowsAndColumns + columnIt] = sum;
+        }
+    }
+
+    clock_t endNative = clock();
+
+    printf("[MATRIX_SZORZAS] C szorzas futasi ido: %f s\n", (double)(endNative - startNative) / CLOCKS_PER_SEC);
+    
     printf("[MATRIX_SZORZAS] A szorzat eredmenymatrixa %d soros:\n", numRowsAndColumns);
+
+    if(memcmp(multiplication_buffer, multiplication_buffer_native, multiplicationBufferSize))
+    {
+        printf("[MATRIX_SZORZAS] Hibas OpenCL eredmeny!!!\n");
+    } else 
+    {
+        printf("[MATRIX_SZORZAS] A C implementacio es az OpenCL matrix szorzas eredmenye megegyezik.\n");
+    }
 
     /*
     for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
     {
-        printf("==> Az %d. sor szamai: ", rowIt + 1);
+        printf("==> (OPENCL MATRIX) Az %d. sor szamai: ", rowIt + 1);
 
         for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
         {
             printf("%d%s", multiplication_buffer[(rowIt * numRowsAndColumns) + dataIt], (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+        }
+
+        printf("\n");
+    }
+    */
+
+    /*
+    for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
+    {
+        printf("==> (C MATRIX) Az %d. sor szamai: ", rowIt + 1);
+
+        for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
+        {
+            printf("%d%s", multiplication_buffer_native[(rowIt * numRowsAndColumns) + dataIt], (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
         }
 
         printf("\n");
@@ -811,7 +868,7 @@ int main(void)
     /* 2x2-es példa END */
 
     /* 4x4-es példa */
-    int matrixSizes = 8500;
+    int matrixSizes = 1536;
 
     int matrixAllocationSizes = matrixSizes * matrixSizes * sizeof(int);
 

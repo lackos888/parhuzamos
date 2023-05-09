@@ -1,4 +1,4 @@
-__kernel void transzponalas(__global int* matrix, int numRowsAndColumns)
+__kernel void transzponalas(__global long* matrix, int numRowsAndColumns)
 {
     size_t idx = get_global_id(0);
 
@@ -7,13 +7,11 @@ __kernel void transzponalas(__global int* matrix, int numRowsAndColumns)
         return;
     }
 
-    int rowNum = (idx / numRowsAndColumns);
+    size_t rowNum = (idx / numRowsAndColumns);
 
-    int columnNum = idx % numRowsAndColumns;
+    size_t columnNum = idx % numRowsAndColumns;
 
     atomic_xchg(&matrix[rowNum * numRowsAndColumns + columnNum], matrix[rowNum + columnNum * numRowsAndColumns]);
-
-    //printf("rowNum: %d | columnNum: %d | idx: %d | cpy: %d\n", rowNum, columnNum, idx, cpy);
 }
 
 __kernel void sorosszeg_szamitas(__global int* matrix, int numRowsAndColumns, __global int *sum)
@@ -25,9 +23,9 @@ __kernel void sorosszeg_szamitas(__global int* matrix, int numRowsAndColumns, __
         return;
     }
 
-    int rowNum = (idx / numRowsAndColumns);
+    size_t rowNum = (idx / numRowsAndColumns);
 
-    int columnNum = idx % numRowsAndColumns;
+    size_t columnNum = idx % numRowsAndColumns;
 
     atomic_add(&sum[rowNum], matrix[rowNum * numRowsAndColumns + columnNum]);
 }
@@ -41,14 +39,38 @@ __kernel void oszloposszeg_szamitas(__global int* matrix, int numRowsAndColumns,
         return;
     }
 
-    int rowNum = (idx / numRowsAndColumns);
+    size_t rowNum = (idx / numRowsAndColumns);
 
-    int columnNum = idx % numRowsAndColumns;
+    size_t columnNum = idx % numRowsAndColumns;
 
     atomic_add(&sum[rowNum], matrix[rowNum + columnNum * numRowsAndColumns]);
 }
 
-#define LOCAL_BUFFER_SIZE 512
+#define LOCAL_BUFFER_SIZE 1024
+
+typedef struct 
+{
+    size_t offset;
+    size_t numberOfSubtractionsDone;
+} calculatedOff;
+
+size_t calculate_offset_and_other_things(size_t idx, int matrix1Size, calculatedOff *res)
+{
+    size_t secondPow = (matrix1Size * matrix1Size);
+
+    size_t offset = (idx / secondPow);
+
+    idx = (idx % (secondPow));
+
+    size_t numberOfSubtractionsDone = (idx / matrix1Size);
+
+    idx = (idx % matrix1Size); 
+
+    res->offset = offset;
+    res->numberOfSubtractionsDone = numberOfSubtractionsDone;
+
+    return idx;
+}
 
 __kernel void multiplication(__global long* matrix1, __global long* matrix2, int matrix1Size, int matrix2Size, __global long *mul)
 {
@@ -73,13 +95,11 @@ __kernel void multiplication(__global long* matrix1, __global long* matrix2, int
 
     size_t realIdx = idx;
 
-    size_t offset = (idx / (matrix1Size * matrix1Size));
+    calculatedOff offsets = {0};
+    idx = calculate_offset_and_other_things(idx, matrix1Size, &offsets);
 
-    idx = (idx % (matrix1Size * matrix1Size));
-
-    size_t numberOfSubtractionsDone = (idx / matrix1Size);
-
-    idx = (idx % matrix1Size);
+    size_t offset = offsets.offset;
+    size_t numberOfSubtractionsDone = offsets.numberOfSubtractionsDone;
 
     size_t inputRowNumFromMatrix1 = min((size_t)matrix1Size, (size_t)(idx / matrix1Size) + offset);
 
@@ -97,13 +117,11 @@ __kernel void multiplication(__global long* matrix1, __global long* matrix2, int
     {
         size_t idx2 = groupGlobalIdxStart + i;
 
-        size_t offset2 = (idx2 / (matrix1Size * matrix1Size));
+        calculatedOff offsets = {0};
+        idx2 = calculate_offset_and_other_things(idx2, matrix1Size, &offsets);
 
-        idx2 = (idx2 % (matrix1Size * matrix1Size));
-
-        size_t numberOfSubtractionsDone2 = (idx2 / matrix1Size);
-
-        idx2 = (idx2 % matrix1Size);
+        size_t offset2 = offsets.offset;
+        size_t numberOfSubtractionsDone2 = offsets.numberOfSubtractionsDone;
 
         if(offset2 != offset || numberOfSubtractionsDone2 != numberOfSubtractionsDone)
         {
@@ -128,13 +146,11 @@ __kernel void multiplication(__global long* matrix1, __global long* matrix2, int
 
             size_t idx2 = groupGlobalIdxStart + i;
 
-            size_t offset2 = (idx2 / (matrix1Size * matrix1Size));
+            calculatedOff offsets = {0};
+            idx2 = calculate_offset_and_other_things(idx2, matrix1Size, &offsets);
 
-            idx2 = (idx2 % (matrix1Size * matrix1Size));
-
-            size_t numberOfSubtractionsDone2 = (idx2 / matrix1Size);
-
-            idx2 = (idx2 % matrix1Size);
+            size_t offset2 = offsets.offset;
+            size_t numberOfSubtractionsDone2 = offsets.numberOfSubtractionsDone;
 
             long outputRowNum = min(matrix1Size, (int)((idx2 / matrix1Size) + offset2));
 

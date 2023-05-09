@@ -17,24 +17,19 @@ int RandRange(int Min, int Max)
     return (int) (((double)(diff+1)/RAND_MAX) * rand() + Min);
 }
 
-int transzponalas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id device_id, cl_context context, cl_program program)
+int transzponalas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id device_id, cl_context context, cl_program program, int numRowsAndColumns, cl_long *matrix1, cl_long *outputMatrix)
 {
     cl_int err;
     int error_code;
 
     // Create the host buffer and initialize it
 
-    const int numRowsAndColumns = 6;
-
-    const cl_int hostBufferSize = sizeof(cl_int) * (numRowsAndColumns * numRowsAndColumns);
-
-    cl_int *host_buffer = malloc(hostBufferSize);
-
-    for(int it = 0; it < numRowsAndColumns * numRowsAndColumns; it++)
-    {
-        host_buffer[it] = RandRange(50, 150);
-    }
+    const cl_long hostBufferSize = sizeof(cl_long) * (numRowsAndColumns * numRowsAndColumns);
     
+    memset(outputMatrix, 0, hostBufferSize);
+    memcpy(outputMatrix, matrix1, hostBufferSize);
+
+    /*
     printf("[TRANSZPONALAS-BEFORE] Az eredeti matrix %d soros:\n", numRowsAndColumns);
 
     for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
@@ -43,18 +38,22 @@ int transzponalas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id de
 
         for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
         {
-            printf("%d%s", host_buffer[(rowIt * numRowsAndColumns) + dataIt], (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+            printf("%d", matrix1[(rowIt * numRowsAndColumns) + dataIt]);
+            printf("%s", (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+
+            outputMatrix[rowIt * numRowsAndColumns + dataIt] = matrix1[rowIt * numRowsAndColumns + dataIt];
         }
 
         printf("\n");
     }
+    */
 
     // Create the device buffer
     cl_mem device_buffer = clCreateBuffer(
         context,
         CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
         hostBufferSize,
-        host_buffer,
+        outputMatrix,
         &err
     );
     if (err != CL_SUCCESS) {
@@ -71,19 +70,6 @@ int transzponalas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id de
     // Create the command queue
     cl_command_queue command_queue = clCreateCommandQueue(
         context, device_id, 0, NULL);
-
-    // Host buffer -> Device buffer
-    clEnqueueWriteBuffer(
-        command_queue,
-        device_buffer,
-        CL_FALSE,
-        0,
-        hostBufferSize,
-        host_buffer,
-        0,
-        NULL,
-        NULL
-    );
 
     // Size specification
     size_t local_work_size = 1;
@@ -112,12 +98,13 @@ int transzponalas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id de
         CL_TRUE,
         0,
         hostBufferSize,
-        host_buffer,
+        outputMatrix,
         0,
         NULL,
         NULL
     );
 
+    /*
     printf("[TRANSZPONALAS-AFTER] A modositott matrix %d soros:\n", numRowsAndColumns);
 
     for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
@@ -126,18 +113,18 @@ int transzponalas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id de
 
         for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
         {
-            printf("%d%s", host_buffer[rowIt * numRowsAndColumns + dataIt], (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+            printf("%d", outputMatrix[rowIt * numRowsAndColumns + dataIt]);
+            printf("%s", (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
         }
 
         printf("\n");
     }
+    */
 
     // Release the resources
     clReleaseMemObject(device_buffer);
     clReleaseKernel(kernel);
     clReleaseCommandQueue(command_queue);
-
-    free(host_buffer);
 
     return 1;
 }
@@ -477,6 +464,8 @@ int min(int a, int b)
     return (a > b) ? b : a;
 }
 
+//#define MATRIX_SZORZAS_DEBUG
+
 int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id device_id, cl_context context, cl_program program, cl_long *matrix1, int matrix1size, cl_long *matrix2, int matrix2size)
 {
     cl_int err;
@@ -491,41 +480,42 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
 
     const int numRowsAndColumns = matrix1size;
 
-    /*
-    printf("[MATRIX_SZORZAS] Az eredeti 1. matrix %d soros:\n", numRowsAndColumns);
+    #ifdef MATRIX_SZORZAS_DEBUG
+        printf("[MATRIX_SZORZAS] Az eredeti 1. matrix %d soros:\n", numRowsAndColumns);
 
-    for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
-    {
-        printf("==> Az %d. sor szamai: ", rowIt + 1);
-
-        for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
+        for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
         {
-            printf("%ld", matrix1[(rowIt * numRowsAndColumns) + dataIt]);
-            printf("%s", (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+            printf("==> Az %d. sor szamai: ", rowIt + 1);
+
+            for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
+            {
+                printf("%ld", matrix1[(rowIt * numRowsAndColumns) + dataIt]);
+                printf("%s", (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+            }
+
+            printf("\n");
         }
 
-        printf("\n");
-    }
+        printf("[MATRIX_SZORZAS] Az eredeti 2. matrix %d soros:\n", numRowsAndColumns);
 
-    printf("[MATRIX_SZORZAS] Az eredeti 2. matrix %d soros:\n", numRowsAndColumns);
-
-    for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
-    {
-        printf("==> Az %d. sor szamai: ", rowIt + 1);
-
-        for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
+        for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
         {
-            printf("%ld", matrix2[(rowIt * numRowsAndColumns) + dataIt]);
-            printf("%s", (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
-        }
+            printf("==> Az %d. sor szamai: ", rowIt + 1);
 
-        printf("\n");
-    }
-    */
+            for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
+            {
+                printf("%ld", matrix2[(rowIt * numRowsAndColumns) + dataIt]);
+                printf("%s", (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+            }
+
+            printf("\n");
+        }
+    #endif
 
     printf("[MATRIX_SZORZAS] Before multiplicationBufferSize\n");
 
     const cl_long multiplicationBufferSize = sizeof(cl_long) * (numRowsAndColumns * numRowsAndColumns);
+
     cl_long *multiplication_buffer = malloc(multiplicationBufferSize);
     cl_long *multiplication_buffer_native = malloc(multiplicationBufferSize);
 
@@ -700,49 +690,49 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
         printf("[MATRIX_SZORZAS] A C implementacio es az OpenCL matrix szorzas eredmenye megegyezik.\n");
     }
 
-    /*
-    printf("<========================> OPENCL <========================>\n");
+    #ifdef MATRIX_SZORZAS_DEBUG
+        printf("<========================> OPENCL <========================>\n");
 
-    for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
-    {
-        if(rowIt > 0)
+        for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
         {
-            break;
+            if(rowIt > 0)
+            {
+                break;
+            }
+
+            printf("==> (MATRIX) Az %d. sor szamai: ", rowIt + 1);
+
+            for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
+            {
+                printf("%ld", multiplication_buffer[(rowIt * numRowsAndColumns) + dataIt]);
+                printf(" (%d, %d)", rowIt, dataIt);
+                printf("%s", (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+            }
+
+            printf("\n");
         }
 
-        printf("==> (MATRIX) Az %d. sor szamai: ", rowIt + 1);
+        printf("<========================> C <========================>\n");
 
-        for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
+        for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
         {
-            printf("%ld", multiplication_buffer[(rowIt * numRowsAndColumns) + dataIt]);
-            printf(" (%d, %d)", rowIt, dataIt);
-            printf("%s", (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+            if(rowIt > 0)
+            {
+                break;
+            }
+
+            printf("==> (MATRIX) Az %d. sor szamai: ", rowIt + 1);
+
+            for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
+            {
+                printf("%ld", multiplication_buffer_native[(rowIt * numRowsAndColumns) + dataIt]);
+                printf(" (%d, %d)", rowIt, dataIt);
+                printf("%s", (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
+            }
+
+            printf("\n");
         }
-
-        printf("\n");
-    }
-
-    printf("<========================> C <========================>\n");
-
-    for(int rowIt = 0; rowIt < numRowsAndColumns; rowIt++)
-    {
-        if(rowIt > 0)
-        {
-            break;
-        }
-
-        printf("==> (MATRIX) Az %d. sor szamai: ", rowIt + 1);
-
-        for(int dataIt = 0; dataIt < numRowsAndColumns; dataIt++)
-        {
-            printf("%ld", multiplication_buffer_native[(rowIt * numRowsAndColumns) + dataIt]);
-            printf(" (%d, %d)", rowIt, dataIt);
-            printf("%s", (dataIt < (numRowsAndColumns - 1) ? ", " : ""));
-        }
-
-        printf("\n");
-    }
-    */
+    #endif
     
     // Release the resources
     clReleaseMemObject(matrix_1_buffer);
@@ -888,7 +878,7 @@ int main(void)
     /* 2x2-es példa END */
 
     /* 4x4-es példa */
-    int matrixSizes = 1024;
+    int matrixSizes = 1536;
 
     cl_long matrixAllocationSizes = matrixSizes * matrixSizes * sizeof(cl_long);
 

@@ -57,7 +57,7 @@ int transzponalas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id de
         &err
     );
     if (err != CL_SUCCESS) {
-        printf("Unable to create buffer! Code: %d\n", err);
+        printf("[transzponalas] Unable to create buffer! Code: %d\n", err);
         return 0;
     }
 
@@ -179,7 +179,7 @@ int sorosszeg_szamitas(cl_platform_id platform_id, cl_uint n_devices, cl_device_
     );
 
     if (err != CL_SUCCESS) {
-        printf("Unable to create buffer! Code: %d\n", err);
+        printf("[sorosszeg_szamitas] Unable to create buffer! Code: %d\n", err);
         return 0;
     }
 
@@ -193,7 +193,7 @@ int sorosszeg_szamitas(cl_platform_id platform_id, cl_uint n_devices, cl_device_
     );
 
     if (err != CL_SUCCESS) {
-        printf("Unable to create buffer (#2)! Code: %d\n", err);
+        printf("[sorosszeg_szamitas] Unable to create buffer (#2)! Code: %d\n", err);
         return 0;
     }
 
@@ -344,7 +344,7 @@ int oszloposszeg_szamitas(cl_platform_id platform_id, cl_uint n_devices, cl_devi
     );
 
     if (err != CL_SUCCESS) {
-        printf("Unable to create buffer! Code: %d\n", err);
+        printf("[oszloposszeg_szamitas] Unable to create buffer! Code: %d\n", err);
         return 0;
     }
 
@@ -358,7 +358,7 @@ int oszloposszeg_szamitas(cl_platform_id platform_id, cl_uint n_devices, cl_devi
     );
 
     if (err != CL_SUCCESS) {
-        printf("Unable to create buffer (#2)! Code: %d\n", err);
+        printf("[oszloposszeg_szamitas] Unable to create buffer (#2)! Code: %d\n", err);
         return 0;
     }
 
@@ -464,7 +464,9 @@ int min(int a, int b)
     return (a > b) ? b : a;
 }
 
-#define MATRIX_SZORZAS_DEBUG
+//#define MATRIX_SZORZAS_DEBUG
+
+#define MATRIX_MUL_BLOCK_SIZE 256
 
 int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id device_id, cl_context context, cl_program program, cl_long *matrix1, int matrix1size, cl_long *matrix2, int matrix2size)
 {
@@ -610,6 +612,8 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
     }
 
     unsigned int local_work_size = fmax(1, fmin(fmin(max_work_group_size_by_kernel, max_work_group_size_by_device), global_work_size));
+
+    global_work_size = fmax(1, (unsigned int)((double)(global_work_size) / (double)MATRIX_MUL_BLOCK_SIZE));
 
     printf("[MATRIX_SZORZAS] global_work_size: %u\n", global_work_size);
     printf("[MATRIX_SZORZAS] local_work_size: %u\n", local_work_size);
@@ -782,11 +786,14 @@ int main(void)
     // Build the program
     const char* kernel_code = load_kernel_source("kernels/sample.cl", &error_code);
     if (error_code != 0) {
-        printf("Source code loading error!\n");
+        printf("[main] Source code loading error!\n");
         return 0;
     }
     cl_program program = clCreateProgramWithSource(context, 1, &kernel_code, NULL, NULL);
-    const char options[] = "";
+
+    char options[1024] = {0};
+    sprintf(options, "-D MATRIX_MUL_BLOCK_SIZE=%d", MATRIX_MUL_BLOCK_SIZE);
+
     err = clBuildProgram(
         program,
         1,
@@ -796,7 +803,7 @@ int main(void)
         NULL
     );
     if (err != CL_SUCCESS) {
-        printf("Build error! Code: %d\n", err);
+        printf("[main] Build error! Code: %d\n", err);
         size_t real_size;
         err = clGetProgramBuildInfo(
             program,
@@ -816,8 +823,8 @@ int main(void)
             &real_size
         );
         build_log[real_size] = 0;
-        printf("Real size : %d\n", real_size);
-        printf("Build log : %s\n", build_log);
+        printf("[main] Real size : %d\n", real_size);
+        printf("[main] Build log : %s\n", build_log);
         free(build_log);
         return 0;
     }
@@ -878,7 +885,7 @@ int main(void)
     /* 2x2-es példa END */
 
     /* 4x4-es példa */
-    int matrixSizes = 2;
+    int matrixSizes = 1536;
 
     cl_long matrixAllocationSizes = matrixSizes * matrixSizes * sizeof(cl_long);
 

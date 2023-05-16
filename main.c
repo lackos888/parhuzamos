@@ -606,14 +606,19 @@ int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id d
 
     unsigned int global_work_size = numRowsAndColumns * (numRowsAndColumns * numRowsAndColumns);
 
+    global_work_size = fmax(1, (unsigned int)((double)(global_work_size) / (double)MATRIX_MUL_BLOCK_SIZE));
+
+    if(global_work_size % 2 != 0)
+    {
+        global_work_size++;
+    }
+
     while(global_work_size % max_work_group_size_by_kernel != 0 && max_work_group_size_by_kernel > 1)
     {
         max_work_group_size_by_kernel--;
     }
 
     unsigned int local_work_size = fmax(1, fmin(fmin(max_work_group_size_by_kernel, max_work_group_size_by_device), global_work_size));
-
-    global_work_size = fmax(1, (unsigned int)((double)(global_work_size) / (double)MATRIX_MUL_BLOCK_SIZE));
 
     printf("[MATRIX_SZORZAS] global_work_size: %u\n", global_work_size);
     printf("[MATRIX_SZORZAS] local_work_size: %u\n", local_work_size);
@@ -885,7 +890,7 @@ int main(void)
     /* 2x2-es példa END */
 
     /* 4x4-es példa */
-    int matrixSizes = 1536;
+    int matrixSizes = 100;
 
     cl_long matrixAllocationSizes = matrixSizes * matrixSizes * sizeof(cl_long);
 

@@ -466,7 +466,7 @@ int min(int a, int b)
 
 //#define MATRIX_SZORZAS_DEBUG
 
-#define MATRIX_MUL_BLOCK_SIZE 256
+#define MATRIX_MUL_BLOCK_SIZE 512
 
 int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id device_id, cl_context context, cl_program program, cl_long *matrix1, int matrix1size, cl_long *matrix2, int matrix2size)
 {

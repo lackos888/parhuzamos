@@ -878,7 +878,7 @@ int main(void)
     /* 2x2-es példa END */
 
     /* 4x4-es példa */
-    int matrixSizes = 1536;
+    int matrixSizes = 1024;
 
     cl_long matrixAllocationSizes = matrixSizes * matrixSizes * sizeof(cl_long);
 

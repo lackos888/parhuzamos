@@ -48,35 +48,69 @@ __kernel void oszloposszeg_szamitas(__global int* matrix, int numRowsAndColumns,
     atomic_add(&sum[rowNum], matrix[rowNum + columnNum * numRowsAndColumns]);
 }
 
-__kernel void multiplication(__global long* matrix1, __global long* matrix2, int matrix1Size, int matrix2Size, __global long *mul)
+#define BLOCK_SIZE 16
+
+typedef struct 
 {
-    size_t idx = get_global_id(0);
-    size_t realIdx = idx;
+    size_t offset;
+    size_t numberOfSubtractionsDone;
+} calculatedOff;
 
-    size_t offset = (idx / (matrix1Size * matrix1Size));
+size_t calculate_offset_and_other_things(size_t idx, int matrix1Size, calculatedOff *res)
+{
+    size_t secondPow = (matrix1Size * matrix1Size);
 
-    idx = (idx % (matrix1Size * matrix1Size));
+    size_t offset = (idx / secondPow);
+
+    idx = (idx % (secondPow));
 
     size_t numberOfSubtractionsDone = (idx / matrix1Size);
 
-    idx = (idx % matrix1Size);
+    idx = (idx % matrix1Size); 
 
-    int inputRowNumFromMatrix1 = min(matrix1Size, (int)((idx / matrix1Size) + offset));
+    res->offset = offset;
+    res->numberOfSubtractionsDone = numberOfSubtractionsDone;
 
-    int inputColumnNumFromMatrix1 = (idx % matrix1Size);
+    return idx;
+}
 
-    int inputRowNumFromMatrix2 = inputColumnNumFromMatrix1;
+__kernel void multiplication(__global long* matrix1, __global long* matrix2, int matrix1Size, int matrix2Size, __global long *mul)
+{
+    long sumRet[BLOCK_SIZE];
 
-    int inputColumnNumFromMatrix2 = inputRowNumFromMatrix1 + (numberOfSubtractionsDone - offset);
+    size_t maxIterations = matrix1Size * matrix1Size * matrix1Size;
 
-    long multiplyA = matrix1[(inputRowNumFromMatrix1 * matrix1Size) + inputColumnNumFromMatrix1];
+    for(int workIt = 0; workIt < BLOCK_SIZE; workIt++)
+    {
+        size_t idx = get_global_id(0) * BLOCK_SIZE + workIt;
 
-    long multiplyB = matrix2[(inputRowNumFromMatrix2 * matrix2Size) + inputColumnNumFromMatrix2];
+        size_t realIdx = idx;
 
-    int outputRowNum = min(matrix1Size, (int)((idx / matrix1Size) + offset));
+        size_t offset = (idx / (matrix1Size * matrix1Size));
 
-    int outputRowColumn = numberOfSubtractionsDone;
+        idx = (idx % (matrix1Size * matrix1Size));
 
-    atomic_add(&mul[outputRowNum * matrix1Size + outputRowColumn], multiplyA * multiplyB);
+        size_t numberOfSubtractionsDone = (idx / matrix1Size);
+
+        idx = (idx % matrix1Size);
+
+        int inputRowNumFromMatrix1 = min(matrix1Size, (int)((idx / matrix1Size) + offset));
+
+        int inputColumnNumFromMatrix1 = (idx % matrix1Size);
+
+        int inputRowNumFromMatrix2 = inputColumnNumFromMatrix1;
+
+        int inputColumnNumFromMatrix2 = inputRowNumFromMatrix1 + (numberOfSubtractionsDone - offset);
+
+        long multiplyA = matrix1[(inputRowNumFromMatrix1 * matrix1Size) + inputColumnNumFromMatrix1];
+
+        long multiplyB = matrix2[(inputRowNumFromMatrix2 * matrix2Size) + inputColumnNumFromMatrix2];
+
+        int outputRowNum = min(matrix1Size, (int)((idx / matrix1Size) + offset));
+
+        int outputRowColumn = numberOfSubtractionsDone;
+
+        //atomic_add(&mul[outputRowNum * matrix1Size + outputRowColumn], multiplyA * multiplyB);
+    }
     //printf("idx %d: %d*%d|output: (%d, %d)|input: (%d, %d)*(%d, %d)|offset: %d|fakeIdx: %d|numberOfSubtractionsDone: %d\n", realIdx, multiplyA, multiplyB, outputRowNum, outputRowColumn, inputRowNumFromMatrix1, inputColumnNumFromMatrix1, inputRowNumFromMatrix2, inputColumnNumFromMatrix2, offset, idx, numberOfSubtractionsDone); 
 }

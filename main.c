@@ -464,7 +464,7 @@ int min(int a, int b)
     return (a > b) ? b : a;
 }
 
-//#define MATRIX_SZORZAS_DEBUG
+#define MATRIX_SZORZAS_DEBUG
 
 int matrix_szorzas(cl_platform_id platform_id, cl_uint n_devices, cl_device_id device_id, cl_context context, cl_program program, cl_long *matrix1, int matrix1size, cl_long *matrix2, int matrix2size)
 {
@@ -878,7 +878,7 @@ int main(void)
     /* 2x2-es példa END */
 
     /* 4x4-es példa */
-    int matrixSizes = 1536;
+    int matrixSizes = 2;
 
     cl_long matrixAllocationSizes = matrixSizes * matrixSizes * sizeof(cl_long);
 
